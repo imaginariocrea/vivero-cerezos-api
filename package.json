@@ -1,0 +1,9 @@
+{
+  "name": "vivero-los-cerezos-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend serverless de Ceci, la asistente IA de Vivero Los Cerezos",
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest"
+  }
+}
