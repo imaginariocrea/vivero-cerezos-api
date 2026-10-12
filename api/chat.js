@@ -1,9 +1,9 @@
-const Anthropic = require('@anthropic-ai/sdk');
+﻿const Anthropic = require('@anthropic-ai/sdk');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 1 });
 
 const PRIMARY_MODEL = 'claude-haiku-5-5';
-const FALLBACK_MODEL = 'claude-sonnet-5-5';
+const FALLBACK_MODEL = 'claude-opus-5'; // modelo anterior, probado en producción
 const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 529]);
 
 // Solo la web del vivero puede usar este chat
@@ -26,20 +26,22 @@ async function createChatResponse(systemPrompt, messages) {
     { model: FALLBACK_MODEL, delay: 0 },
   ];
   let lastErr;
-  for (const attempt of attempts) {
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    // Si el modelo principal falló con un error no transitorio, ir directo al modelo anterior
+    if (attempt.model === PRIMARY_MODEL && lastErr && !RETRYABLE_STATUS.has(lastErr.status)) continue;
     if (attempt.delay) await sleep(attempt.delay);
     try {
       return await client.messages.create({
         model: attempt.model,
         max_tokens: 2048,
-        output_config: { effort: 'low' },
         system: systemPrompt,
         messages,
       });
     } catch (err) {
       lastErr = err;
-      if (!RETRYABLE_STATUS.has(err && err.status)) throw err;
-      console.error(`Intento con ${attempt.model} falló (status ${err.status}), reintentando...`);
+      console.error(`Intento con ${attempt.model} falló (status ${err && err.status}): ${err && err.message}`);
+      if (attempt.model !== PRIMARY_MODEL && !RETRYABLE_STATUS.has(err && err.status)) throw err;
     }
   }
   throw lastErr;
@@ -190,7 +192,7 @@ module.exports = async (req, res) => {
     const response = await createChatResponse(systemPrompt, [...safeHistory, { role: 'user', content: message }]);
 
     const textBlock = response.content.find((b) => b.type === 'text');
-    res.status(200).json({ reply: textBlock ? textBlock.text : '' });
+    res.status(200).json({ reply: textBlock ? textBlock.text : '', model: response.model });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al procesar la consulta' });
